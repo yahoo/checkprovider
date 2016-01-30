@@ -1,0 +1,719 @@
+#!/usr/bin/perl
+#
+# Copyright 2016, Yahoo Inc.
+# Copyrights licensed under the Apache 2.0 License.
+# See the accompanying LICENSE file for terms.
+#
+use strict;
+use warnings;
+
+use POSIX qw( :sys_wait_h strftime BUFSIZ );
+use Socket;
+use IO::Socket::SSL;
+use Pod::Usage;
+use Time::HiRes qw( time sleep                  );
+use Getopt::Long;
+use File::Basename;
+
+use constant VERSION => '1.1';
+
+#
+# configuration
+#
+
+# what's the script name?
+use constant NAME => basename $0;
+
+# define the configuration for this script
+#   - what are the details of the test request?
+use constant PORT    => 80;
+use constant TLSPORT => 443;
+
+#   - what is the rate (per second) of requests, and how long should
+#     the test run for?
+use constant RATE   => 1;     #  1 request per second
+use constant PERIOD => 10;    # 10 second test duration
+
+my %UAs = (
+    'default' => NAME . "/" . VERSION,
+    'smartphone' =>
+'Mozilla/5.0 (iPhone; CPU iPhone OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A5376e Safari/8536.25',
+    'tablet' =>
+'Mozilla/5.0 (iPad; U; CPU OS 3_2 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Version/4.0.4 Mobile/7B334b Safari/531.21.10',
+    'desktop' =>
+'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36',
+    'ie6' =>
+'Mozilla/5.0 (Windows; U; MSIE 6.0; Windows NT 5.1; SV1; .NET CLR 2.0.50727)',
+    'ie7' => 'Mozilla/5.0 (Windows; U; MSIE 7.0; Windows NT 6.0; en-US)',
+    'ie8' =>
+'Mozilla/5.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0; GTB7.4; InfoPath.2; SV1; .NET CLR 3.3.69573; WOW64; en-US)',
+    'ie9' => 'Mozilla/5.0 (Windows; U; MSIE 9.0; WIndows NT 9.0; en-US)',
+    'ie10' =>
+'Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 7.0; InfoPath.3; .NET CLR 3.1.40767; Trident/6.0; en-IN)',
+    'ie11' =>
+'Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko',
+    'chrome' =>
+'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36',
+    'firefox' =>
+'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1',
+    'ios6' =>
+'Mozilla/5.0 (iPhone; CPU iPhone OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A5376e Safari/8536.25',
+    'ios7' =>
+'Mozilla/5.0 (iPhone; CPU iPhone OS 7_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/7.0 Mobile/10A5376e Safari/8536.25',
+    'ios8' =>
+'Mozilla/5.0 (iPhone; CPU iPhone OS 8_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/8.0 Mobile/10A5376e Safari/8536.25',
+    'android' =>
+'Mozilla/5.0 (Linux; Android 4.0.4; Galaxy Nexus Build/IMM76B) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.133 Mobile Safari/535.19'
+);
+
+my $UA = "default";
+
+#   - define the EOL sequence (CRLF) for HTTP
+use constant EOL => "\015\012";
+
+#   - what's the format for displaying time?
+use constant TIMEFMT => "%Y-%m-%d %T %Z";
+
+#
+# subroutine prototypes
+#
+
+sub time_request ($);     # time a single request
+sub show_header ();       # display the output header
+sub show_response ($);    # display the statistics of a single request
+
+#
+# process the command line options
+#
+my $version       = undef;    # display the script version?
+my $help          = undef;    # display the script help?
+my $no_header     = undef;    # suppress the header?
+my $no_blank      = undef;    # suppress the trailing blank line?
+my $output_format = "def";    #
+my $quiet         = undef;    # suppress the header and the trailing blank line?
+my $rate          = RATE;     # the rate of requests
+my $period        = PERIOD;   # the period of the requests
+my $feed          = "/";      # the feed
+my $query         = "";       # the query part
+my $queryterm     = undef;    # the query term if any
+my $port          = PORT;     # the port number for the above hostname
+my $frequency     = undef;    # the frequency of the queries
+my $debug         = 0;        # no debugging
+my $url           = undef;    #
+my $inputurl      = undef;    #
+my $usernotice    = undef;
+my $httphost      = undef;    # the HTTP header Host:
+my $hostip        = undef;    # ip address
+
+pod2usage( { -verbose => 2 } ) if ( $#ARGV < 0 );
+
+Getopt::Long::Configure('bundling');
+GetOptions(
+    'version|v'     => \$version,
+    'no-header|h'   => \$no_header,
+    'no-blank|b'    => \$no_blank,
+    'format|O=s'    => \$output_format,
+    'quiet|q'       => \$quiet,
+    'rate|r=f'      => \$rate,
+    'frequency|f=f' => \$frequency,
+    'period|p=i'    => \$period,
+    'feed|F=s'      => \$feed,
+    'query|Q=s'     => \$query,
+    'queryterm|T=s' => \$queryterm,
+    'host|w=s'      => \$httphost,
+    'wip=s'         => \$hostip,
+    'port=s'        => \$port,
+    'debug=i'       => \$debug,
+    'd+'            => \$debug,
+    'url|u=s'       => \$inputurl,
+    'useragent|U=s' => \$UA,
+    'help|?'        => \$help
+) or pod2usage;
+
+if ( $#ARGV >= 0 ) {
+    $inputurl = $ARGV[0];
+}
+
+if ( defined $inputurl ) {
+    $url = $inputurl;
+    $url =~ m/^(http[s])*:\/\//;    # match http[s]://
+    if ( $1 && $1 eq 'https' ) {
+        $port = TLSPORT;
+    }
+    $url =~ s/^http[s]*:\/\///;     # strip http[s]://
+    if ( $url =~ /([^\/]*)(\/[^\?]*)\?(.*)/ ) {
+        $hostip = $1;
+        $feed   = $2;
+        $query  = $3;
+    }
+    elsif ( $url =~ /([^\/]*)(\/[^\?]*)/ ) {
+        $hostip = $1;
+        $feed   = $2;
+    }
+    else {
+        $hostip = $url;
+    }
+}
+
+if ( $hostip =~ m/([^:]*):(\d*)/ ) {
+    $hostip = $1;
+    $port   = $2;
+}
+
+# should we display the help information?
+pod2usage( { -verbose => 2 } ) if ($help);
+
+# should we report the script version?
+print NAME . ' v' . VERSION . "\n"
+  and exit 0
+  if ($version);
+
+#
+# run the timing tests
+#
+
+# should we show the header?
+show_header unless ( $no_header || $quiet );
+
+# how many tests should we run?
+my $total =
+    ( !$period )           ? 0
+  : ( defined $frequency ) ? $period / $frequency
+  :                          $period * $rate;
+for ( my $test = 0 ; !$period || $test < $total ; $total && $test++ ) {
+
+    # fork a child process
+    my $pid = fork;
+
+    # if we are the parent process then we should commence a non-blocking wait
+    # for child processes
+    if ($pid) {
+
+        # sleep to set the required request rate
+        ( defined $frequency ) and sleep $frequency
+          or sleep 1. / $rate;
+
+        # don't actually need to do anything other than catch the CHLD signals
+        1 while ( ( my $child = waitpid( -1 => WNOHANG ) ) > 0 );
+
+        # otherwise, if we are the child process, then perform the test
+    }
+    elsif ( defined $pid ) {
+        show_response
+          time_request $hostip;    # run a request and display the results
+        exit 0;                    # that's all folks
+
+        # else, there's a problem, so give up
+    }
+    else {
+        die NAME . ": could not fork(): $!\n";
+    }
+}
+
+# wait for child processes to terminate
+1 while ( ( my $child = waitpid( -1 => 0 ) ) > 0 );
+
+# give a blank line after this set of results (if required)
+print "\n" unless ( $no_blank || $quiet );
+
+#
+# that's all folks
+#
+
+exit 0;
+
+# subroutines only beyond this point
+############################################################################
+
+# time_request( <host> )
+#
+# Return a hash of component times for a single request of the host.
+sub time_request($) {
+    my $hostip = shift;    # what IP should we query?
+    my %stats  = ();       # the collected timing statistics
+    my $tls    = 0;        # secure or insecure?
+
+    local $!;
+
+    # perform initialisation before we start timing
+    my $bytes;
+    undef $bytes;          # bytes read
+    my $error;
+    undef $error;          # has an error occurred?
+    my $socket;
+    undef $socket;         # socket handle
+    my $content;
+    undef $content;        # the response content
+    my @request;
+    undef @request;        # the lines of the request
+    if ( $query eq "" ) {
+        push @request, sprintf( "GET %s HTTP/1.1", $feed );
+    }
+    else {
+        push @request, sprintf( "GET %s?%s HTTP/1.1", $feed, $query );
+    }
+    push @request,
+      sprintf( "Host: %s",
+        defined($httphost)
+        ? $httphost
+        : ( $port ne PORT ? "$hostip:$port" : $hostip ) );
+    $tls = ( $port eq TLSPORT );
+    if ( $UAs{$UA} ) {
+        push @request, sprintf("User-Agent: $UAs{$UA}");
+    }
+    else {
+        push @request, sprintf("User-Agent: $UA");
+    }
+    push @request, sprintf("Connection: close");
+    my $request = join EOL, @request, '', '';
+    if ($debug) {
+        print "$request";
+        print "doing TLS? $tls\n";
+    }
+    my $proto = getprotobyname('tcp');
+
+    # set up a routine for handling the termination of time_request()
+    my $done = sub {
+
+        # set the total response time (if it's not already set)
+        $stats{total} ||= time - $stats{time};
+
+        # set the error string (if there is one)
+        $stats{error} ||= $_[0] || '';
+        $stats{ip}    ||= $_[1] || '';
+
+        # return the response statistics
+        return \%stats;
+    };    # $done
+
+    # record the time the test was run
+    my $start = $stats{time} = time;
+
+    # perform DNS lookup
+    my $ip;
+
+    $ip = inet_aton($hostip)
+      or return $done->( "DNS lookup failed for " . $hostip );
+    my $addr = sockaddr_in( $port, $ip );
+    $stats{dns} = time - $start;
+    $ip = inet_ntoa($ip);
+
+    # create the socket
+    $start = time;
+    socket( $socket, PF_INET, SOCK_STREAM, $proto )
+      or return $done->( "socket creation failed: $!", $ip );
+    $stats{socket} = time - $start;
+
+    # TCP connect
+    $start = time;
+    connect( $socket => $addr )
+      or return $done->( "connection failed: " . $!, $ip );
+    $stats{connect} = time - $start;
+
+    # turn on unbuffered I/O for this socket
+    select( ( select($socket), $| = 1 )[0] );
+
+    # upgrade to TLS
+    if ($tls) {
+        $start = time;
+        IO::Socket::SSL->start_SSL(
+            $socket,
+            {
+                SSL_hostname    => $httphost,
+                SSL_ca_path     => '/etc/ssl/certs',
+                SSL_verify_mode => SSL_VERIFY_NONE
+            }
+          )
+          or return $done->( "tls handshake failed: " . $! . $SSL_ERROR, $ip );
+        $stats{tls} = time - $start;
+    }
+    else {
+        $stats{tls} = 0;
+    }
+
+    # send the request and close the socket for writing
+    $start = time;
+    ( syswrite( $socket, $request ) == length $request )
+      or return $done->( "write failed: $!", $ip );
+
+    #shutdown $socket => 1;
+    $stats{write} = time - $start;
+
+    # now we want to time how long it takes to get the first byte
+    $start = time;
+    ( defined( sysread $socket, $content, 1 ) )
+      or return $done->( "read failed: $!", $ip );
+    $stats{firstbyte} = time - $start;
+
+    # read the rest of the response
+    $content .= $_ while ( sysread $socket, $_, BUFSIZ );
+    $stats{read} = time - ( $start + $stats{firstbyte} );
+
+    if ( $debug > 1 ) {
+        print STDERR "$content\n";
+    }
+
+    # close the socket
+    $start = time;
+    close $socket;
+    $stats{close} = time - $start;
+    $stats{total} = time - $stats{time};
+
+    # store the response length
+    $stats{bytes} = ( defined $content ) ? length $content : 0;
+
+    $stats{content} = $content;
+
+    # was this response successful?
+    $stats{status} = ( $content =~ m#HTTP/\S+\s+(\d+)\s+#o )[0] if ($content);
+
+    # return the reference to the statistics array
+    return $done->( "", $ip );
+}    # time_request()
+
+# show_header()
+#
+# Display the timing information header.
+sub show_header() {
+
+    # determine the length of the time display
+    my $length = length strftime( TIMEFMT, localtime );
+
+    # how much indentation should there be for the time?
+    #   - we want it centred above each timestamp
+    my $time = 'Timestamp';
+    my $indent = int( ( $length - length $time ) / 2 );
+    $time = sprintf( "%s%-*s", ' ' x $indent, $length - $indent, $time );
+
+    # generate the times header
+    my $times = join( ' ',
+        '     DNS',
+        '  Socket',
+        ' Connect',
+        '     TLS',
+        '   Write ',
+        '1stByte',
+        '    Read ',
+        '  Close ',
+        '  Total ' );
+
+    # generate a header centred over the component time headers
+    my $units = "Request Times (ms)";
+    $indent = int( ( length($times) - length($units) ) / 2 );
+    $units = sprintf( "%s%s", ' ' x ( $length + $indent ), $units );
+
+    # generate the complete header
+    print "$units\n$time $times  Bytes Status\n";
+}    # show_header()
+
+# show_response($)
+#
+# Display the timing information.
+sub show_response($) {
+    my $stats = shift;
+
+    # generate a string representation of the time of the request
+    my $time = strftime( TIMEFMT, localtime( int $stats->{time} ) );
+
+    # generate the output for this set of timings
+    #     - time
+    #     - DNS lookup
+    #     - socket creation
+    #     - connect
+    #     - TLS Handshake
+    #     - request write
+    #     - 1st byte of response
+    #     - response total
+    #     - close
+    #     - total time
+    #     - bytes
+    #     - status
+    # if the connect failed, then all other values will be undefined
+    $stats->{$_} =
+      ( defined $stats->{$_} )
+      ? sprintf( "%8.2f", $stats->{$_} * 1000. )
+      : ' ' x 8 foreach (
+        qw( dns socket connect tls write firstbyte
+        read close total              )
+      );
+
+    # convert the number of bytes into a well presented number
+    $stats->{bytes} =
+      ( defined $stats->{bytes} )
+      ? sprintf( "%6d", $stats->{bytes} )
+      : ' ' x 6;
+
+    # what status should we display?
+    #   - if we got a 200 response code, then simply display OK, otherwise, if
+    #     we got something other than OK, show NOT OK and include the response
+    #     code in the error message (provided the error message is not already
+    #     defined)
+    if ( defined $stats->{status} ) {
+        if ( $stats->{status} == 200 ) {
+            $stats->{error} = 'OK';
+        }
+        else {
+            $stats->{error} = 'NOT OK';
+        }
+    }
+    else {
+        $stats->{error} = 'NOT OK';
+    }
+
+    # generate the output for this response
+    if ( $output_format eq "def" ) {
+        print join(
+            " ", $time,
+            map { $stats->{$_} }
+              qw( dns socket connect tls write firstbyte read
+              close total )
+        );
+        print "  ";
+        print join( " ", map { $stats->{$_} } qw( bytes error ) );
+        print " (" . $stats->{status} . ")";
+    }
+    else {
+        print strftime( "%s ", localtime( int $stats->{time} ) );
+        print join( " ", map { $stats->{$_} } ( split /,/, $output_format ) );
+    }
+    print "\n";
+}    # show_response()
+
+__END__
+=head1 NAME
+
+B<checkprovider> - Generate timing information for HTTP requests.
+
+=head1 SYNOPSIS
+
+  % ./checkprovider { url | options }
+  % ./checkprovider --help
+
+=head1 DESCRIPTION
+
+B<checkprovider> returns a breakdown of timing information for requests to
+a backend By default, the script runs 10
+queries at a rate of one per second, and outputs timing information for each
+request to C<STDOUT>. 
+
+The timing results are presented in tabulated form, with the following column
+headings: (all times are in milliseconds)
+
+=over 4
+
+=item C<Timestamp>
+
+This is the timestamp of when the request starts.
+
+
+=item C<DNS>
+
+The time taken to perform the DNS lookup for the server.
+
+
+=item C<Socket>
+
+The time required to create a socket for this request.
+
+
+=item C<Connect>
+
+The time taken to connect to the TCP endpoint.
+
+
+=item C<TLS>
+
+The time taken to complete the TLS handshake.
+
+
+=item C<Write>
+
+The time spent writing the HTTP request to the socket.
+
+
+=item C<1st Byte>
+
+This is the time spent waiting for the first byte of the response.
+
+
+=item C<Read>
+
+The total time spent reading the response from the HTTP server.
+
+
+=item C<Close>
+
+The time to close the socket after reading the full response.
+
+
+=item C<Total>
+
+The total time elapsed during the request.
+
+
+=item C<Bytes>
+
+The number of bytes read in the response (including response headers).
+
+
+=item C<Status>
+
+This column shows either C<OK> or C<NOT OK> to indicate whether the request
+was successful (i.e. returned an HTTP 200 response). If any other response
+was obtained, or the initial connection was unsuccessful then all fields from
+C<Connect> through to C<Close> will be empty.
+
+=back
+
+B<checkprovider> will die with an error if the initial DNS lookup or socket
+creation fail.
+
+
+=head1 OPTIONS
+
+The following command line options are supported by B<checkprovider>:
+
+=over 4
+
+=item --no-blank
+
+Suppress the blank line at the end of the list of timing results.
+
+
+=item -d
+
+=item --debug
+
+Print some debug information to stdout.
+
+
+=item -F I<feed>
+
+=item --feed I<feed>
+
+Set the "feed" part of the url, eg -f /forecastxml
+
+
+=item -f I<frequency>
+
+=item --frequency I<frequency>
+
+Set the frequency of the requests in seconds. This is the inverse of the
+query I<rate>, and takes precendence over any rate specified with C<--rate>.
+
+
+=item -h
+
+=item --no-header
+
+Suppress the display of header at the top of the list of timing results.
+
+
+=item -?
+
+=item --help
+
+Display this full help information
+
+
+=item -p I<period>
+
+=item --period I<period>
+
+This specifies the period, in whole seconds, over which the requests are to be
+made.  The default is 10 seconds.
+
+
+=item -r I<rate>
+
+=item --rate I<rate>
+
+This specifies the integer rate of requests per second that should be made by
+B<checkprovider>. The I<rate> and I<period> determine the number of requests
+sent to the HTTP server. The default rate is 1 request per second.
+
+
+=item -Q
+
+=item --query
+
+The query part of the URL, eg. -q "q=london".
+
+
+=item -q
+
+=item --quiet
+
+Suppress the blank line at the end of the results as well as the header. This
+has the same effect as using C<--no-header> and C<--no-blank>.
+
+
+=item -v 
+
+=item --version
+
+Display the version information then quit.
+
+
+=item -w I<host>
+
+=item --host I<host>
+
+Specify the HTTP Host header.
+
+
+=item -U I<User-Agents>
+
+=item -useragent I<User-Agents>
+
+Specify the User-Agent HTTP header.
+
+
+=back
+
+=head1 EXAMPLES
+
+=over 4
+
+
+=item checkprovider "https://example.org/"
+
+Sends the request to example.org over port 443 (since the URI scheme is https). 
+
+
+=item checkprovider -r 20 -p 5 "https://example.org/search?q=beer"
+
+Sends the request to example.org over port 443 sending at a rate of 20 qps for a duration of 5 seconds.
+
+
+=back
+
+=head1 ACKNOWLEDGEMENTS
+
+Derived from goto-metric.pl by Richard Misenheimer.
+
+
+=head1 COPYRIGHT
+
+Copyright 2016, Yahoo Inc.
+Copyrights licensed under the Apache 2.0 License.
+See the accompanying LICENSE file for terms.
+
+=head1 CONTRIBUTORS
+
+=over
+
+=item Richard Misenheimer
+
+=item Ian Brayshaw
+
+=item Leong-Kui Lim
+
+=item Peter Ellehauge
+
+=item Scott Beardsley
+
+
+=back
+
+=cut
