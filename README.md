@@ -10,26 +10,6 @@ request to stdout.
 The timing results are presented in tabulated form, with the following column
 headings: (all times are in milliseconds)
 
-## Example Output
-
-Here is an example of the output:
-
-<pre>
-$ checkprovider https://www.yahoo.com/
-                                                      Request Times (ms)
-       Timestamp             DNS   Socket  Connect      TLS    Write  1stByte     Read    Close    Total   Bytes Status
-2016-01-30 06:54:53 UTC     1.02     0.10     1.54    19.38     0.10    67.87   227.48     0.32   318.14  432019 OK (200)
-2016-01-30 06:54:54 UTC     1.15     0.13     1.31    18.40     0.10    70.84   403.08     0.24   495.38  439123 OK (200)
-2016-01-30 06:54:55 UTC     1.07     0.10     1.47    18.15     0.09    66.33   234.07     0.22   321.65  437772 OK (200)
-2016-01-30 06:54:56 UTC     0.98     0.09     1.39    19.93     0.09    65.90   258.00     0.34   346.88  433950 OK (200)
-2016-01-30 06:54:57 UTC     0.99     0.10     1.32    17.78     0.09   104.22   268.77     0.26   393.73  433018 OK (200)
-2016-01-30 06:54:58 UTC     1.05     0.10     1.42    18.88     0.06    78.30   279.99     0.22   380.18  433947 OK (200)
-2016-01-30 06:54:59 UTC     1.01     0.09     1.42    17.44     0.10    63.76   241.61     0.30   325.90  441893 OK (200)
-2016-01-30 06:55:00 UTC     1.27     0.12     1.38    19.11     0.07    74.45   279.24     0.51   376.29  439629 OK (200)
-2016-01-30 06:55:01 UTC     8.97     0.00     1.69    12.00     0.00    85.00   213.00     6.00   326.96  439342 OK (200)
-2016-01-30 06:55:02 UTC     1.00     0.00     2.00    23.01     0.00    68.99   264.00     1.00   360.00  440608 OK (200)
-</pre>
-
 ## Timestamp
 
 The timestamp of when the request started
@@ -82,6 +62,26 @@ was obtained, or the initial connection was unsuccessful then all fields from
 `Connect` through to `Close` will be empty.
 
 checkprovider will die with an error if the initial DNS lookup or socket creation fail.
+
+## Example
+
+Here is an example of the output:
+
+<pre>
+$ checkprovider https://www.yahoo.com/
+                                                      Request Times (ms)
+       Timestamp             DNS   Socket  Connect      TLS    Write  1stByte     Read    Close    Total   Bytes Status
+2016-01-30 06:54:53 UTC     1.02     0.10     1.54    19.38     0.10    67.87   227.48     0.32   318.14  432019 OK (200)
+2016-01-30 06:54:54 UTC     1.15     0.13     1.31    18.40     0.10    70.84   403.08     0.24   495.38  439123 OK (200)
+2016-01-30 06:54:55 UTC     1.07     0.10     1.47    18.15     0.09    66.33   234.07     0.22   321.65  437772 OK (200)
+2016-01-30 06:54:56 UTC     0.98     0.09     1.39    19.93     0.09    65.90   258.00     0.34   346.88  433950 OK (200)
+2016-01-30 06:54:57 UTC     0.99     0.10     1.32    17.78     0.09   104.22   268.77     0.26   393.73  433018 OK (200)
+2016-01-30 06:54:58 UTC     1.05     0.10     1.42    18.88     0.06    78.30   279.99     0.22   380.18  433947 OK (200)
+2016-01-30 06:54:59 UTC     1.01     0.09     1.42    17.44     0.10    63.76   241.61     0.30   325.90  441893 OK (200)
+2016-01-30 06:55:00 UTC     1.27     0.12     1.38    19.11     0.07    74.45   279.24     0.51   376.29  439629 OK (200)
+2016-01-30 06:55:01 UTC     8.97     0.00     1.69    12.00     0.00    85.00   213.00     6.00   326.96  439342 OK (200)
+2016-01-30 06:55:02 UTC     1.00     0.00     2.00    23.01     0.00    68.99   264.00     1.00   360.00  440608 OK (200)
+</pre>
 
 # Dependencies
 
