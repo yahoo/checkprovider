@@ -96,6 +96,14 @@ The following core modules are also required:
  * Socket
  * Time::HiRes
 
+# Installation
+
+For now this code is not packaged (see also TODO). To use you install the dependencies and then fetch this repo. For example on redhat-based systems:
+
+    $ sudo yum install perl-IO-Socket-SSL
+    $ git clone -o upstream git@github.com:yahoo/checkprovider.git
+    $ export PATH=$PATH:`pwd`/checkprovider
+
 # Options
 
 The following command line options are supported by checkprovider:
@@ -140,6 +148,14 @@ The following command line options are supported by checkprovider:
 <dt>-U useragent|--useragent useragent</dt>
 <dd>Specify the User-Agent HTTP header.</dd>
 </dl>
+
+# TODO
+
+This is a work in progress and we welcome pull requests. Here are a few things that still need work:
+
+ * Packaging (rpm/deb/other?)
+ * Protocol support (HTTP/1.0 and HTTP/2)
+ * pretty graph generation
 
 # License
 
