@@ -125,7 +125,7 @@ The following command line options are supported by checkprovider:
 <dd>Suppress the display of header at the top of the list of timing results.</dd>
 
 <dt>-H header|--header header</dt>
-<dd>Specify an addition HTTP request header. Note: this option can be specified multiple times to provide multiple request headers.</dd>
+<dd>Specify an additional HTTP request header. Note: this option can be specified multiple times to provide multiple request headers.</dd>
 
 <dt>-?|--help</dt>
 <dd>Display full help information.</dd>
