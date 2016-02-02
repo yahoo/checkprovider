@@ -104,6 +104,7 @@ my $inputurl      = undef;    #
 my $usernotice    = undef;
 my $httphost      = undef;    # the HTTP header Host:
 my $hostip        = undef;    # ip address
+my @headers       = ();       # additional request headers
 
 pod2usage( { -verbose => 2 } ) if ( $#ARGV < 0 );
 
@@ -127,7 +128,8 @@ GetOptions(
     'd+'            => \$debug,
     'url|u=s'       => \$inputurl,
     'useragent|U=s' => \$UA,
-    'help|?'        => \$help
+    'help|?'        => \$help,
+    'header|H=s'    => \@headers
 ) or pod2usage;
 
 if ( $#ARGV >= 0 ) {
@@ -265,6 +267,7 @@ sub time_request($) {
         push @request, sprintf("User-Agent: $UA");
     }
     push @request, sprintf("Connection: close");
+    push @request, @headers;
     my $request = join EOL, @request, '', '';
     if ($debug) {
         print "$request";
@@ -679,6 +682,11 @@ Specify the User-Agent HTTP header.
 =item checkprovider "https://example.org/"
 
 Sends the request to example.org over port 443 (since the URI scheme is https). 
+
+
+=item checkprovider -H "Accept-Encoding: gzip, deflate" "https://example.org/"
+
+Sends the request to example.org over port 443 with the "Accept-Encoding: gzip, deflate" request header.
 
 
 =item checkprovider -r 20 -p 5 "https://example.org/search?q=beer"
