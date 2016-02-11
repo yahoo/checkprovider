@@ -278,7 +278,7 @@ sub time_request($) {
             my $term = $terms[$position];
             # try to encode the term if URI::Encode is available
             if ( eval "use URI::Encode; 1" ) {
-                $term = (URI::Encode->new( { encode_reserved => 1 } ))->encode($terms[$position]);
+                $term = (URI::Encode->new( { encode_reserved => 1 } ))->encode($term);
             }
             $query =~ s/\[TERM\]/$term/g;
             $stats{term} = $term;
