@@ -95,7 +95,7 @@ my $rate          = RATE;     # the rate of requests
 my $period        = PERIOD;   # the period of the requests
 my $feed          = "/";      # the feed
 my $query         = "";       # the query part
-my $queryterm     = undef;    # the query term if any
+my $termsfile     = undef;    # the query term list in a file
 my $port          = PORT;     # the port number for the above hostname
 my $frequency     = undef;    # the frequency of the queries
 my $debug         = 0;        # no debugging
@@ -105,6 +105,8 @@ my $usernotice    = undef;
 my $httphost      = undef;    # the HTTP header Host:
 my $hostip        = undef;    # ip address
 my @headers       = ();       # additional request headers
+my @terms         = ();       # list of terms to replace in the query string
+my $position      = 0;        # used to keep track of which term is being used
 
 pod2usage( { -verbose => 2 } ) if ( $#ARGV < 0 );
 
@@ -120,7 +122,7 @@ GetOptions(
     'period|p=i'    => \$period,
     'feed|F=s'      => \$feed,
     'query|Q=s'     => \$query,
-    'queryterm|T=s' => \$queryterm,
+    'termsfile|T=s' => \$termsfile,
     'host|w=s'      => \$httphost,
     'wip=s'         => \$hostip,
     'port=s'        => \$port,
@@ -157,6 +159,18 @@ if ( defined $inputurl ) {
     }
 }
 
+# read query terms from a file store in @terms array
+if ( defined $termsfile ) {
+    if ( -f $termsfile ) {
+        open my $fh, '<:encoding(UTF-8)', $termsfile or die "cannot open file: $termsfile";
+        chomp(@terms = <$fh>);
+        close $fh;
+    } else {
+        print "FATAL: cannot find file: $termsfile\n";
+        exit(1);
+    }
+}
+
 if ( $hostip =~ m/([^:]*):(\d*)/ ) {
     $hostip = $1;
     $port   = $2;
@@ -190,6 +204,13 @@ for ( my $test = 0 ; !$period || $test < $total ; $total && $test++ ) {
     # if we are the parent process then we should commence a non-blocking wait
     # for child processes
     if ($pid) {
+
+        # advance the term list position for the next child
+        if ( ($position + 1) > $#terms ) {
+            $position = 0;
+        } else {
+            $position = $position + 1;
+        }
 
         # sleep to set the required request rate
         ( defined $frequency ) and sleep $frequency
@@ -252,6 +273,16 @@ sub time_request($) {
         push @request, sprintf( "GET %s HTTP/1.1", $feed );
     }
     else {
+        # replace query term and save off term in stats hash
+        if ( defined $termsfile && $query =~ m/(\[TERM\])/ ) {
+            my $term = $terms[$position];
+            # try to encode the term if URI::Encode is available
+            if ( eval "use URI::Encode; 1" ) {
+                $term = (URI::Encode->new( { encode_reserved => 1 } ))->encode($terms[$position]);
+            }
+            $query =~ s/\[TERM\]/$term/g;
+            $stats{term} = $term;
+        }
         push @request, sprintf( "GET %s?%s HTTP/1.1", $feed, $query );
     }
     push @request,
@@ -406,7 +437,8 @@ sub show_header() {
     $units = sprintf( "%s%s", ' ' x ( $length + $indent ), $units );
 
     # generate the complete header
-    print "$units\n$time $times  Bytes Status\n";
+    my $termsheader = ( defined $termsfile ) ? "   [Term]" : "";
+    print "$units\n$time $times  Bytes Status$termsheader\n";
 }    # show_header()
 
 # show_response($)
@@ -431,6 +463,7 @@ sub show_response($) {
     #     - total time
     #     - bytes
     #     - status
+    #     - term
     # if the connect failed, then all other values will be undefined
     $stats->{$_} =
       ( defined $stats->{$_} )
@@ -474,6 +507,9 @@ sub show_response($) {
         print "  ";
         print join( " ", map { $stats->{$_} } qw( bytes error ) );
         print " (" . $stats->{status} . ")";
+        if ( defined $stats->{term} ) {
+            print " [" . $stats->{term} . "]";
+        }
     }
     else {
         print strftime( "%s ", localtime( int $stats->{time} ) );
@@ -692,6 +728,11 @@ Sends the request to example.org over port 443 with the "Accept-Encoding: gzip, 
 =item checkprovider -r 20 -p 5 "https://example.org/search?q=beer"
 
 Sends the request to example.org over port 443 sending at a rate of 20 qps for a duration of 5 seconds.
+
+
+=item checkprovider -T termlist "https://example.org/search?p=[TERM]"
+
+Iterate through the lines in file termlist and replace [TERM] with the line before sending the request.
 
 
 =back

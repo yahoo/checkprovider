@@ -63,6 +63,10 @@ was obtained, or the initial connection was unsuccessful then all fields from
 
 checkprovider will die with an error if the initial DNS lookup or socket creation fail.
 
+## Term
+
+This column shows the query term used for the request.
+
 ## Example
 
 Here is an example of the output:
@@ -96,11 +100,14 @@ The following core modules are also required:
  * Socket
  * Time::HiRes
 
+The folloring modules are optional:
+ * URI::Encode (Note: only used for `-T` option)
+
 # Installation
 
 For now this code is not packaged (see also TODO). To use you install the dependencies and then fetch this repo. For example on redhat-based systems:
 
-    $ sudo yum install perl-IO-Socket-SSL
+    $ sudo yum install perl-IO-Socket-SSL perl-URI-Encode
     $ git clone -o upstream git@github.com:yahoo/checkprovider.git
     $ export PATH=$PATH:`pwd`/checkprovider
 
@@ -136,11 +143,14 @@ The following command line options are supported by checkprovider:
 <dt>-r rate|--rate rate</dt>
 <dd>This specifies the integer rate of requests per second that should be made by checkprovider. The rate and period determine the number of requests sent to the HTTP server. The default rate is 1 request per second.</dd>
 
-<dt>-Q|--query rate</dt>
+<dt>-Q|--query string</dt>
 <dd>The query part of the URL, eg. `-q "q=london"`.</dd>
 
 <dt>-q|--quiet</dt>
 <dd>Suppress the blank line at the end of the results as well as the header. This has the same effect as using `--no-header` and `--no-blank`.</dd>
+
+<dt>-T|--termsfile filename</dt>
+<dd>A file containing a list of terms to be used in place of the `[TERM]` string in the URL. The format of the file is one term per line.</dd>
 
 <dt>-v|--version</dt>
 <dd>Display the version information then quit.</dd>
